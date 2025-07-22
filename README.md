@@ -1,137 +1,166 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
-from flask_sqlalchemy import SQLAlchemy
-from werkzeug.security import generate_password_hash, check_password_hash
-import os
-from datetime import datetime, timedelta
-import secrets
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>签到系统</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#165DFF',
+            secondary: '#FF7D00',
+            success: '#00B42A',
+            warning: '#FF7D00',
+            danger: '#F53F3F',
+            dark: '#1D2129',
+            light: '#F2F3F5'
+          },
+          fontFamily: {
+            inter: ['Inter', 'system-ui', 'sans-serif'],
+          },
+        },
+      }
+    }
+  </script>
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .content-auto {
+        content-visibility: auto;
+      }
+      .card-shadow {
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+      }
+      .btn-hover {
+        @apply transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5;
+      }
+      .form-input-focus {
+        @apply focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all;
+      }
+    }
+  </style>
+</head>
+<body class="font-inter bg-gray-50 text-dark min-h-screen flex flex-col">
+  <!-- 全局状态管理 -->
+  <script>
+    // 模拟数据库
+    const db = {
+      users: [
+        { id: 1, username: 'admin', password: 'Admin123', name: '管理员', points: 0, isAdmin: true },
+        { id: 2, username: 'user1', password: 'User123', name: '张三', points: 100, isAdmin: false },
+        { id: 3, username: 'user2', password: 'User456', name: '李四', points: 50, isAdmin: false }
+      ],
+      products: [
+        { id: 1, name: '保温杯', points: 50, quantity: 10, description: '304不锈钢真空保温杯，保温时长12小时以上。' },
+        { id: 2, name: '充电宝', points: 80, quantity: 5, description: '20000mAh大容量充电宝，支持快充。' },
+        { id: 3, name: '蓝牙音箱', points: 120, quantity: 3, description: '高品质蓝牙音箱，360°环绕立体声。' },
+        { id: 4, name: '无线耳机', points: 150, quantity: 0, description: '主动降噪无线耳机，续航30小时。' }
+      ],
+      checkins: [
+        { userId: 2, date: '2025-07-20' },
+        { userId: 3, date: '2025-07-21' }
+      ],
+      passwordRequests: [],
+      exchangeRequests: []
+    };
 
-app = Flask(__name__)
-app.config['SECRET_KEY'] = secrets.token_hex(16)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///checkin_system.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
+    // 全局状态
+    const state = {
+      currentUser: null,
+      currentPage: 'login', // login, register, forgotPassword, userDashboard, adminDashboard, productList, productDetail, adminProductList, adminAddProduct, adminEditProduct
+      currentProduct: null,
+      passwordRequest: { name: '', newPassword: '', confirmPassword: '' },
+      productForm: { id: null, name: '', points: '', quantity: '', description: '' }
+    };
 
-# 定义数据库模型
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(50), unique=True, nullable=False)
-    password_hash = db.Column(db.String(128), nullable=False)
-    real_name = db.Column(db.String(50))
-    points = db.Column(db.Integer, default=0)
-    last_checkin = db.Column(db.DateTime)
-    is_admin = db.Column(db.Boolean, default=False)
-    
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
-    
-    def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
+    // 工具函数
+    function saveDB() {
+      localStorage.setItem('checkInSystemDB', JSON.stringify(db));
+    }
 
-class PasswordResetRequest(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    new_password_hash = db.Column(db.String(128), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    approved = db.Column(db.Boolean, default=False)
-    processed = db.Column(db.Boolean, default=False)
-    
-    user = db.relationship('User', backref=db.backref('reset_requests', lazy=True))
+    function loadDB() {
+      const savedDB = localStorage.getItem('checkInSystemDB');
+      if (savedDB) {
+        Object.assign(db, JSON.parse(savedDB));
+      }
+    }
 
-class Product(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    description = db.Column(db.Text)
-    price = db.Column(db.Integer, nullable=False)
-    image_url = db.Column(db.String(200))
-    available = db.Column(db.Boolean, default=True)
+    function validatePassword(password) {
+      return /^[A-Za-z0-9]+$/.test(password);
+    }
 
-class Order(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    processed = db.Column(db.Boolean, default=False)
-    
-    user = db.relationship('User', backref=db.backref('orders', lazy=True))
-    product = db.relationship('Product', backref=db.backref('orders', lazy=True))
+    function validateUsername(username) {
+      return /^[A-Za-z0-9]+$/.test(username);
+    }
 
-# 密码验证函数
-def validate_password(password):
-    if len(password) < 8 or len(password) > 16:
-        return False
-    if not any(c.isalpha() for c in password):
-        return False
-    if not any(c.isdigit() for c in password):
-        return False
-    if not all(c.isalnum() for c in password):
-        return False
-    return True
+    function validateChineseName(name) {
+      return /^[\u4e00-\u9fa5]+$/.test(name);
+    }
 
-# 路由定义
-@app.route('/')
-def index():
-    return render_template('index.html')
+    function formatDate(date) {
+      const d = new Date(date);
+      return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
+    }
 
-@app.route('/register', methods=['GET', 'POST'])
-def register():
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        confirm_password = request.form['confirm_password']
-        
-        if User.query.filter_by(username=username).first():
-            flash('用户名已存在', 'error')
-            return redirect(url_for('register'))
-        
-        if password != confirm_password:
-            flash('两次输入的密码不一致', 'error')
-            return redirect(url_for('register'))
-        
-        if not validate_password(password):
-            flash('密码必须包含字母和数字，长度为8-16位', 'error')
-            return redirect(url_for('register'))
-        
-        user = User(username=username)
-        user.set_password(password)
-        db.session.add(user)
-        db.session.commit()
-        
-        flash('注册成功，请登录', 'success')
-        return redirect(url_for('login'))
-    
-    return render_template('register.html')
+    function hasCheckedInToday(userId) {
+      const today = formatDate(new Date());
+      return db.checkins.some(checkin => checkin.userId === userId && checkin.date === today);
+    }
 
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        
-        user = User.query.filter_by(username=username).first()
-        
-        if user and user.check_password(password):
-            session['user_id'] = user.id
-            session['is_admin'] = user.is_admin
-            flash('登录成功', 'success')
-            return redirect(url_for('dashboard'))
-        else:
-            flash('用户名或密码错误', 'error')
-            return redirect(url_for('login'))
-    
-    return render_template('login.html')
+    // 页面导航
+    function navigateTo(page) {
+      state.currentPage = page;
+      render();
+    }
 
-@app.route('/forgot_password', methods=['GET', 'POST'])
-def forgot_password():
-    if request.method == 'POST':
-        username = request.form['username']
-        real_name = request.form['real_name']
-        new_password = request.form['new_password']
-        confirm_password = request.form['confirm_password']
-        
-        user = User.query.filter_by(username=username).first()
-        
-        if not user:
-            flash('用户不存在', 'error')
-            return redirect(url_for('forgot_password'))
-        
-        if user.real_name and user.real_name != re
+    // 用户认证
+    function handleRegister() {
+      const username = document.getElementById('register-username').value.trim();
+      const password = document.getElementById('register-password').value;
+      const confirmPassword = document.getElementById('register-confirm-password').value;
+
+      if (!username || !password || !confirmPassword) {
+        showToast('请填写所有字段', 'error');
+        return;
+      }
+
+      if (!validateUsername(username)) {
+        showToast('用户名只能包含大小写字母和数字', 'error');
+        return;
+      }
+
+      if (db.users.some(user => user.username === username)) {
+        showToast('用户名已存在', 'error');
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        showToast('两次输入的密码不一致', 'error');
+        return;
+      }
+
+      if (!validatePassword(password)) {
+        showToast('密码只能包含大小写字母和数字', 'error');
+        return;
+      }
+
+      const newUser = {
+        id: db.users.length > 0 ? Math.max(...db.users.map(user => user.id)) + 1 : 1,
+        username,
+        password,
+        name: username,
+        points: 0,
+        isAdmin: false
+      };
+
+      db.users.push(newUser);
+      saveDB();
+      showToast('注册成功，请登录', 'success');
+      navigateTo('login');
+    }
+
+    function handleLogin() {
+      const us
