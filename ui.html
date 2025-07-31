@@ -1,0 +1,1304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>签到系统</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#165DFF',
+            secondary: '#FF7D00',
+            success: '#00B42A',
+            warning: '#FF7D00',
+            danger: '#F53F3F',
+            dark: '#1D2129',
+            light: '#F2F3F5'
+          },
+          fontFamily: {
+            inter: ['Inter', 'system-ui', 'sans-serif'],
+          },
+        },
+      }
+    }
+  </script>
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .content-auto {
+        content-visibility: auto;
+      }
+      .card-shadow {
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+      }
+      .btn-hover {
+        @apply transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5;
+      }
+      .form-input-focus {
+        @apply focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all;
+      }
+    }
+  </style>
+</head>
+<body class="font-inter bg-gray-50 text-dark min-h-screen flex flex-col">
+  <!-- 全局状态管理 -->
+  <script>
+    // 模拟数据库
+    const db = {
+      users: [
+        { id: 1, username: 'admin', password: 'Admin123', name: '管理员', points: 0, isAdmin: true },
+        { id: 2, username: 'user1', password: 'User123', name: '张三', points: 100, isAdmin: false },
+        { id: 3, username: 'user2', password: 'User456', name: '李四', points: 50, isAdmin: false }
+      ],
+      products: [
+        { id: 1, name: '保温杯', points: 50, quantity: 10, description: '304不锈钢真空保温杯，保温时长12小时以上。' },
+        { id: 2, name: '充电宝', points: 80, quantity: 5, description: '20000mAh大容量充电宝，支持快充。' },
+        { id: 3, name: '蓝牙音箱', points: 120, quantity: 3, description: '高品质蓝牙音箱，360°环绕立体声。' },
+        { id: 4, name: '无线耳机', points: 150, quantity: 0, description: '主动降噪无线耳机，续航30小时。' }
+      ],
+      checkins: [
+        { userId: 2, date: '2025-07-20' },
+        { userId: 3, date: '2025-07-21' }
+      ],
+      passwordRequests: [],
+      exchangeRequests: []
+    };
+
+    // 全局状态
+    const state = {
+      currentUser: null,
+      currentPage: 'login', // login, register, forgotPassword, userDashboard, adminDashboard, productList, productDetail, adminProductList, adminAddProduct, adminEditProduct
+      currentProduct: null,
+      passwordRequest: { name: '', newPassword: '', confirmPassword: '' },
+      productForm: { id: null, name: '', points: '', quantity: '', description: '' }
+    };
+
+    // 工具函数
+    function saveDB() {
+      localStorage.setItem('checkInSystemDB', JSON.stringify(db));
+    }
+
+    function loadDB() {
+      const savedDB = localStorage.getItem('checkInSystemDB');
+      if (savedDB) {
+        Object.assign(db, JSON.parse(savedDB));
+      }
+    }
+
+    function validatePassword(password) {
+      return /^[A-Za-z0-9]+$/.test(password);
+    }
+
+    function validateUsername(username) {
+      return /^[A-Za-z0-9]+$/.test(username);
+    }
+
+    function validateChineseName(name) {
+      return /^[\u4e00-\u9fa5]+$/.test(name);
+    }
+
+    function formatDate(date) {
+      const d = new Date(date);
+      return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
+    }
+
+    function hasCheckedInToday(userId) {
+      const today = formatDate(new Date());
+      return db.checkins.some(checkin => checkin.userId === userId && checkin.date === today);
+    }
+
+    // 页面导航
+    function navigateTo(page) {
+      state.currentPage = page;
+      render();
+    }
+
+    // 用户认证
+    function handleRegister() {
+      const username = document.getElementById('register-username').value.trim();
+      const password = document.getElementById('register-password').value;
+      const confirmPassword = document.getElementById('register-confirm-password').value;
+
+      if (!username || !password || !confirmPassword) {
+        showToast('请填写所有字段', 'error');
+        return;
+      }
+
+      if (!validateUsername(username)) {
+        showToast('用户名只能包含大小写字母和数字', 'error');
+        return;
+      }
+
+      if (db.users.some(user => user.username === username)) {
+        showToast('用户名已存在', 'error');
+        return;
+      }
+
+      if (password !== confirmPassword) {
+        showToast('两次输入的密码不一致', 'error');
+        return;
+      }
+
+      if (!validatePassword(password)) {
+        showToast('密码只能包含大小写字母和数字', 'error');
+        return;
+      }
+
+      const newUser = {
+        id: db.users.length > 0 ? Math.max(...db.users.map(user => user.id)) + 1 : 1,
+        username,
+        password,
+        name: username,
+        points: 0,
+        isAdmin: false
+      };
+
+      db.users.push(newUser);
+      saveDB();
+      showToast('注册成功，请登录', 'success');
+      navigateTo('login');
+    }
+
+    function handleLogin() {
+      const username = document.getElementById('login-username').value.trim();
+      const password = document.getElementById('login-password').value;
+
+      if (!username || !password) {
+        showToast('请填写用户名和密码', 'error');
+        return;
+      }
+
+      const user = db.users.find(user => user.username === username && user.password === password);
+
+      if (!user) {
+        showToast('用户名或密码错误', 'error');
+        return;
+      }
+
+      state.currentUser = user;
+      saveDB();
+      navigateTo(user.isAdmin ? 'adminDashboard' : 'userDashboard');
+    }
+
+    function handleAdminLogin() {
+      const username = document.getElementById('admin-username').value.trim();
+      const password = document.getElementById('admin-password').value;
+
+      if (!username || !password) {
+        showToast('请填写用户名和密码', 'error');
+        return;
+      }
+
+      const admin = db.users.find(user => user.username === username && user.password === password && user.isAdmin);
+
+      if (!admin) {
+        showToast('管理员账号或密码错误', 'error');
+        return;
+      }
+
+      state.currentUser = admin;
+      saveDB();
+      navigateTo('adminDashboard');
+    }
+
+    function handleForgotPassword() {
+      const name = document.getElementById('forgot-name').value.trim();
+      const newPassword = document.getElementById('forgot-new-password').value;
+      const confirmPassword = document.getElementById('forgot-confirm-password').value;
+
+      if (!name || !newPassword || !confirmPassword) {
+        showToast('请填写所有字段', 'error');
+        return;
+      }
+
+      if (!validateChineseName(name)) {
+        showToast('请输入真实中文姓名', 'error');
+        return;
+      }
+
+      const user = db.users.find(user => user.name === name);
+
+      if (!user) {
+        showToast('未找到该用户', 'error');
+        return;
+      }
+
+      if (newPassword !== confirmPassword) {
+        showToast('两次输入的密码不一致', 'error');
+        return;
+      }
+
+      if (!validatePassword(newPassword)) {
+        showToast('密码只能包含大小写字母和数字', 'error');
+        return;
+      }
+
+      const request = {
+        id: db.passwordRequests.length > 0 ? Math.max(...db.passwordRequests.map(req => req.id)) + 1 : 1,
+        userId: user.id,
+        newPassword,
+        status: 'pending',
+        createdAt: new Date().toISOString()
+      };
+
+      db.passwordRequests.push(request);
+      saveDB();
+      showToast('密码修改请求已提交，请等待管理员审核', 'success');
+      navigateTo('login');
+    }
+
+    function handleAdminApprovePassword(requestId) {
+      const requestIndex = db.passwordRequests.findIndex(req => req.id === requestId);
+      if (requestIndex === -1) return;
+
+      const request = db.passwordRequests[requestIndex];
+      const userIndex = db.users.findIndex(user => user.id === request.userId);
+
+      if (userIndex !== -1) {
+        db.users[userIndex].password = request.newPassword;
+      }
+
+      db.passwordRequests[requestIndex].status = 'approved';
+      saveDB();
+      showToast('密码修改已批准', 'success');
+      render();
+    }
+
+    function handleAdminRejectPassword(requestId) {
+      const requestIndex = db.passwordRequests.findIndex(req => req.id === requestId);
+      if (requestIndex === -1) return;
+
+      db.passwordRequests[requestIndex].status = 'rejected';
+      saveDB();
+      showToast('密码修改已拒绝', 'success');
+      render();
+    }
+
+    // 签到功能
+    function handleCheckIn() {
+      if (!state.currentUser) return;
+
+      if (hasCheckedInToday(state.currentUser.id)) {
+        showToast('今天已经签到过了', 'info');
+        return;
+      }
+
+      db.checkins.push({
+        userId: state.currentUser.id,
+        date: formatDate(new Date())
+      });
+
+      const userIndex = db.users.findIndex(user => user.id === state.currentUser.id);
+      if (userIndex !== -1) {
+        db.users[userIndex].points += 10;
+        state.currentUser.points += 10;
+      }
+
+      saveDB();
+      showToast('签到成功，获得10积分', 'success');
+      render();
+    }
+
+    // 商品管理
+    function handleExchangeProduct(productId) {
+      if (!state.currentUser) {
+        showToast('请先登录', 'error');
+        navigateTo('login');
+        return;
+      }
+
+      const product = db.products.find(p => p.id === productId);
+      if (!product) return;
+
+      if (product.quantity <= 0) {
+        showToast('商品库存不足', 'error');
+        return;
+      }
+
+      if (state.currentUser.points < product.points) {
+        showToast('积分不足', 'error');
+        return;
+      }
+
+      const request = {
+        id: db.exchangeRequests.length > 0 ? Math.max(...db.exchangeRequests.map(req => req.id)) + 1 : 1,
+        userId: state.currentUser.id,
+        productId: product.id,
+        status: 'pending',
+        createdAt: new Date().toISOString()
+      };
+
+      db.exchangeRequests.push(request);
+      saveDB();
+      showToast('兑换请求已提交，请等待管理员审核', 'success');
+      navigateTo('productList');
+    }
+
+    function handleAdminApproveExchange(requestId) {
+      const requestIndex = db.exchangeRequests.findIndex(req => req.id === requestId);
+      if (requestIndex === -1) return;
+
+      const request = db.exchangeRequests[requestIndex];
+      const productIndex = db.products.findIndex(p => p.id === request.productId);
+      const userIndex = db.users.findIndex(user => user.id === request.userId);
+
+      if (productIndex !== -1 && userIndex !== -1) {
+        const product = db.products[productIndex];
+        if (product.quantity > 0) {
+          db.products[productIndex].quantity -= 1;
+          db.users[userIndex].points -= product.points;
+          db.exchangeRequests[requestIndex].status = 'approved';
+          saveDB();
+          showToast('兑换已批准', 'success');
+        } else {
+          showToast('商品库存不足', 'error');
+          db.exchangeRequests[requestIndex].status = 'rejected';
+          saveDB();
+        }
+      }
+
+      render();
+    }
+
+    function handleAdminRejectExchange(requestId) {
+      const requestIndex = db.exchangeRequests.findIndex(req => req.id === requestId);
+      if (requestIndex === -1) return;
+
+      db.exchangeRequests[requestIndex].status = 'rejected';
+      saveDB();
+      showToast('兑换已拒绝', 'success');
+      render();
+    }
+
+    function handleAdminAddProduct() {
+      const name = document.getElementById('admin-product-name').value.trim();
+      const points = parseInt(document.getElementById('admin-product-points').value, 10);
+      const quantity = parseInt(document.getElementById('admin-product-quantity').value, 10);
+      const description = document.getElementById('admin-product-description').value.trim();
+
+      if (!name || isNaN(points) || isNaN(quantity) || !description) {
+        showToast('请填写所有字段', 'error');
+        return;
+      }
+
+      if (points <= 0 || quantity < 0) {
+        showToast('积分必须大于0，数量必须大于等于0', 'error');
+        return;
+      }
+
+      const newProduct = {
+        id: db.products.length > 0 ? Math.max(...db.products.map(p => p.id)) + 1 : 1,
+        name,
+        points,
+        quantity,
+        description
+      };
+
+      db.products.push(newProduct);
+      saveDB();
+      showToast('商品已添加', 'success');
+      navigateTo('adminProductList');
+    }
+
+    function handleAdminEditProduct(productId) {
+      const productIndex = db.products.findIndex(p => p.id === productId);
+      if (productIndex === -1) return;
+
+      const name = document.getElementById('admin-product-name').value.trim();
+      const points = parseInt(document.getElementById('admin-product-points').value, 10);
+      const quantity = parseInt(document.getElementById('admin-product-quantity').value, 10);
+      const description = document.getElementById('admin-product-description').value.trim();
+
+      if (!name || isNaN(points) || isNaN(quantity) || !description) {
+        showToast('请填写所有字段', 'error');
+        return;
+      }
+
+      if (points <= 0 || quantity < 0) {
+        showToast('积分必须大于0，数量必须大于等于0', 'error');
+        return;
+      }
+
+      db.products[productIndex] = {
+        ...db.products[productIndex],
+        name,
+        points,
+        quantity,
+        description
+      };
+
+      saveDB();
+      showToast('商品已更新', 'success');
+      navigateTo('adminProductList');
+    }
+
+    function handleAdminDeleteProduct(productId) {
+      if (confirm('确定要删除此商品吗？')) {
+        db.products = db.products.filter(p => p.id !== productId);
+        saveDB();
+        showToast('商品已删除', 'success');
+        render();
+      }
+    }
+
+    // 显示提示消息
+    function showToast(message, type = 'info') {
+      const toast = document.createElement('div');
+      toast.className = `fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg z-50 transition-all duration-500 transform translate-x-full opacity-0 flex items-center`;
+      
+      let bgColor, icon;
+      switch(type) {
+        case 'success':
+          bgColor = 'bg-success text-white';
+          icon = 'fa-check-circle';
+          break;
+        case 'error':
+          bgColor = 'bg-danger text-white';
+          icon = 'fa-times-circle';
+          break;
+        case 'warning':
+          bgColor = 'bg-warning text-white';
+          icon = 'fa-exclamation-triangle';
+          break;
+        case 'info':
+        default:
+          bgColor = 'bg-primary text-white';
+          icon = 'fa-info-circle';
+          break;
+      }
+      
+      toast.classList.add(...bgColor.split(' '));
+      toast.innerHTML = `
+        <i class="fa ${icon} mr-2"></i>
+        <span>${message}</span>
+      `;
+      
+      document.body.appendChild(toast);
+      
+      // 显示提示
+      setTimeout(() => {
+        toast.classList.remove('translate-x-full', 'opacity-0');
+        toast.classList.add('translate-x-0', 'opacity-100');
+      }, 10);
+      
+      // 自动隐藏
+      setTimeout(() => {
+        toast.classList.remove('translate-x-0', 'opacity-100');
+        toast.classList.add('translate-x-full', 'opacity-0');
+        
+        setTimeout(() => {
+          document.body.removeChild(toast);
+        }, 500);
+      }, 3000);
+    }
+
+    // 渲染页面
+    function render() {
+      const app = document.getElementById('app');
+      app.innerHTML = '';
+      
+      switch(state.currentPage) {
+        case 'login':
+          app.appendChild(createLoginPage());
+          break;
+        case 'register':
+          app.appendChild(createRegisterPage());
+          break;
+        case 'forgotPassword':
+          app.appendChild(createForgotPasswordPage());
+          break;
+        case 'userDashboard':
+          app.appendChild(createUserDashboard());
+          break;
+        case 'adminDashboard':
+          app.appendChild(createAdminDashboard());
+          break;
+        case 'productList':
+          app.appendChild(createProductListPage());
+          break;
+        case 'productDetail':
+          app.appendChild(createProductDetailPage());
+          break;
+        case 'adminProductList':
+          app.appendChild(createAdminProductListPage());
+          break;
+        case 'adminAddProduct':
+          app.appendChild(createAdminAddProductPage());
+          break;
+        case 'adminEditProduct':
+          app.appendChild(createAdminEditProductPage());
+          break;
+        default:
+          app.appendChild(createLoginPage());
+      }
+    }
+
+    // 创建登录页面
+    function createLoginPage() {
+      const container = document.createElement('div');
+      container.className = 'min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-primary/5 to-secondary/5';
+      
+      container.innerHTML = `
+        <div class="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden transform transition-all duration-300 hover:shadow-2xl">
+          <div class="p-8">
+            <div class="text-center mb-8">
+              <h1 class="text-3xl font-bold text-primary mb-2">签到系统</h1>
+              <p class="text-gray-500">欢迎登录，开始您的签到之旅</p>
+            </div>
+            
+            <div class="space-y-4">
+              <div>
+                <label for="login-username" class="block text-sm font-medium text-gray-700 mb-1">用户名</label>
+                <div class="relative">
+                  <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                    <i class="fa fa-user"></i>
+                  </span>
+                  <input type="text" id="login-username" class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg form-input-focus" placeholder="请输入用户名">
+                </div>
+              </div>
+              
+              <div>
+                <label for="login-password" class="block text-sm font-medium text-gray-700 mb-1">密码</label>
+                <div class="relative">
+                  <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                    <i class="fa fa-lock"></i>
+                  </span>
+                  <input type="password" id="login-password" class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg form-input-focus" placeholder="请输入密码">
+                </div>
+              </div>
+              
+              <div class="flex items-center justify-between">
+                <div class="flex items-center">
+                  <button type="button" class="text-sm text-primary hover:text-primary/80 transition-colors" onclick="navigateTo('forgotPassword')">
+                    忘记密码?
+                  </button>
+                </div>
+                <div class="flex items-center">
+                  <button type="button" class="text-sm text-primary hover:text-primary/80 transition-colors" onclick="toggleAdminLogin()">
+                    管理员登录
+                  </button>
+                </div>
+              </div>
+              
+              <button type="button" class="w-full bg-primary hover:bg-primary/90 text-white font-medium py-2 px-4 rounded-lg transition-all duration-300 transform hover:scale-[1.02] btn-hover" onclick="handleLogin()">
+                登录
+              </button>
+              
+              <div class="flex items-center justify-center">
+                <span class="text-gray-500">还没有账号?</span>
+                <button type="button" class="ml-2 text-primary hover:text-primary/80 transition-colors" onclick="navigateTo('register')">
+                  立即注册
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <div id="admin-login-form" class="hidden p-6 bg-gray-50 border-t border-gray-100">
+            <div class="text-center mb-4">
+              <h2 class="text-xl font-semibold text-gray-700">管理员登录</h2>
+            </div>
+            
+            <div class="space-y-4">
+              <div>
+                <label for="admin-username" class="block text-sm font-medium text-gray-700 mb-1">管理员账号</label>
+                <div class="relative">
+                  <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                    <i class="fa fa-user-circle"></i>
+                  </span>
+                  <input type="text" id="admin-username" class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg form-input-focus" placeholder="请输入管理员账号">
+                </div>
+              </div>
+              
+              <div>
+                <label for="admin-password" class="block text-sm font-medium text-gray-700 mb-1">管理员密码</label>
+                <div class="relative">
+                  <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                    <i class="fa fa-lock"></i>
+                  </span>
+                  <input type="password" id="admin-password" class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg form-input-focus" placeholder="请输入管理员密码">
+                </div>
+              </div>
+              
+              <button type="button" class="w-full bg-primary hover:bg-primary/90 text-white font-medium py-2 px-4 rounded-lg transition-all duration-300 transform hover:scale-[1.02] btn-hover" onclick="handleAdminLogin()">
+                管理员登录
+              </button>
+              
+              <button type="button" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg transition-all duration-300" onclick="toggleAdminLogin()">
+                返回普通登录
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      return container;
+    }
+
+    // 切换管理员登录表单显示状态
+    function toggleAdminLogin() {
+      const adminForm = document.getElementById('admin-login-form');
+      adminForm.classList.toggle('hidden');
+    }
+
+    // 创建注册页面
+    function createRegisterPage() {
+      const container = document.createElement('div');
+      container.className = 'min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-primary/5 to-secondary/5';
+      
+      container.innerHTML = `
+        <div class="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden transform transition-all duration-300 hover:shadow-2xl">
+          <div class="p-8">
+            <div class="text-center mb-8">
+              <h1 class="text-3xl font-bold text-primary mb-2">创建账户</h1>
+              <p class="text-gray-500">填写以下信息注册新账户</p>
+            </div>
+            
+            <div class="space-y-4">
+              <div>
+                <label for="register-username" class="block text-sm font-medium text-gray-700 mb-1">用户名</label>
+                <div class="relative">
+                  <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                    <i class="fa fa-user"></i>
+                  </span>
+                  <input type="text" id="register-username" class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg form-input-focus" placeholder="请输入用户名（只能包含字母和数字）">
+                </div>
+                <p class="text-xs text-gray-500 mt-1">用户名只能包含大小写字母和数字</p>
+              </div>
+              
+              <div>
+                <label for="register-password" class="block text-sm font-medium text-gray-700 mb-1">密码</label>
+                <div class="relative">
+                  <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                    <i class="fa fa-lock"></i>
+                  </span>
+                  <input type="password" id="register-password" class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg form-input-focus" placeholder="请输入密码（只能包含字母和数字）">
+                </div>
+                <p class="text-xs text-gray-500 mt-1">密码只能包含大小写字母和数字</p>
+              </div>
+              
+              <div>
+                <label for="register-confirm-password" class="block text-sm font-medium text-gray-700 mb-1">确认密码</label>
+                <div class="relative">
+                  <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                    <i class="fa fa-lock"></i>
+                  </span>
+                  <input type="password" id="register-confirm-password" class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg form-input-focus" placeholder="请再次输入密码">
+                </div>
+              </div>
+              
+              <button type="button" class="w-full bg-primary hover:bg-primary/90 text-white font-medium py-2 px-4 rounded-lg transition-all duration-300 transform hover:scale-[1.02] btn-hover" onclick="handleRegister()">
+                注册
+              </button>
+              
+              <div class="flex items-center justify-center">
+                <span class="text-gray-500">已有账号?</span>
+                <button type="button" class="ml-2 text-primary hover:text-primary/80 transition-colors" onclick="navigateTo('login')">
+                  返回登录
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      return container;
+    }
+
+    // 创建忘记密码页面
+    function createForgotPasswordPage() {
+      const container = document.createElement('div');
+      container.className = 'min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-primary/5 to-secondary/5';
+      
+      container.innerHTML = `
+        <div class="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden transform transition-all duration-300 hover:shadow-2xl">
+          <div class="p-8">
+            <div class="text-center mb-8">
+              <h1 class="text-3xl font-bold text-primary mb-2">重置密码</h1>
+              <p class="text-gray-500">输入您的信息重置密码</p>
+            </div>
+            
+            <div class="space-y-4">
+              <div>
+                <label for="forgot-name" class="block text-sm font-medium text-gray-700 mb-1">真实姓名</label>
+                <div class="relative">
+                  <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                    <i class="fa fa-id-card"></i>
+                  </span>
+                  <input type="text" id="forgot-name" class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg form-input-focus" placeholder="请输入真实姓名">
+                </div>
+                <p class="text-xs text-gray-500 mt-1">请输入注册时使用的真实中文姓名</p>
+              </div>
+              
+              <div>
+                <label for="forgot-new-password" class="block text-sm font-medium text-gray-700 mb-1">新密码</label>
+                <div class="relative">
+                  <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                    <i class="fa fa-lock"></i>
+                  </span>
+                  <input type="password" id="forgot-new-password" class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg form-input-focus" placeholder="请输入新密码（只能包含字母和数字）">
+                </div>
+                <p class="text-xs text-gray-500 mt-1">密码只能包含大小写字母和数字</p>
+              </div>
+              
+              <div>
+                <label for="forgot-confirm-password" class="block text-sm font-medium text-gray-700 mb-1">确认新密码</label>
+                <div class="relative">
+                  <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                    <i class="fa fa-lock"></i>
+                  </span>
+                  <input type="password" id="forgot-confirm-password" class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg form-input-focus" placeholder="请再次输入新密码">
+                </div>
+              </div>
+              
+              <button type="button" class="w-full bg-primary hover:bg-primary/90 text-white font-medium py-2 px-4 rounded-lg transition-all duration-300 transform hover:scale-[1.02] btn-hover" onclick="handleForgotPassword()">
+                提交
+              </button>
+              
+              <div class="flex items-center justify-center">
+                <span class="text-gray-500">想起密码了?</span>
+                <button type="button" class="ml-2 text-primary hover:text-primary/80 transition-colors" onclick="navigateTo('login')">
+                  返回登录
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      return container;
+    }
+
+    // 创建用户仪表盘
+    function createUserDashboard() {
+      if (!state.currentUser) {
+        navigateTo('login');
+        return;
+      }
+      
+      const container = document.createElement('div');
+      container.className = 'min-h-screen bg-gray-50 flex flex-col';
+      
+      container.innerHTML = `
+        ${createHeader()}
+        
+        <div class="flex-grow container mx-auto px-4 py-8">
+          <div class="bg-white rounded-2xl shadow-lg p-6 mb-8 transform transition-all duration-300 hover:shadow-xl">
+            <div class="flex flex-col md:flex-row items-center">
+              <div class="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mb-4 md:mb-0">
+                <i class="fa fa-user text-3xl text-primary"></i>
+              </div>
+              <div class="ml-0 md:ml-6 text-center md:text-left">
+                <h2 class="text-2xl font-bold text-gray-800">${state.currentUser.username}</h2>
+                <p class="text-gray-600 mt-1">当前积分: <span class="text-primary font-semibold">${state.currentUser.points}</span></p>
+                
+                <div class="mt-4 flex flex-wrap justify-center md:justify-start gap-3">
+                  <button type="button" class="px-4 py-2 bg-primary hover:bg-primary/90 text-white rounded-lg transition-all duration-300 transform hover:scale-[1.02] btn-hover" onclick="handleCheckIn()">
+                    ${hasCheckedInToday(state.currentUser.id) ? 
+                      '<i class="fa fa-check mr-2"></i>今日已签到' : 
+                      '<i class="fa fa-calendar-check-o mr-2"></i>每日签到 (+10积分)'
+                    }
+                  </button>
+                  
+                  <button type="button" class="px-4 py-2 bg-secondary hover:bg-secondary/90 text-white rounded-lg transition-all duration-300 transform hover:scale-[1.02] btn-hover" onclick="navigateTo('productList')">
+                    <i class="fa fa-shopping-mall mr-2"></i>积分商城
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-2xl shadow-lg p-6 transform transition-all duration-300 hover:shadow-xl">
+            <h2 class="text-xl font-bold text-gray-800 mb-6">最近签到记录</h2>
+            
+            <div class="overflow-x-auto">
+              <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">日期</th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">积分</th>
+                  </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                  ${db.checkins
+                    .filter(checkin => checkin.userId === state.currentUser.id)
+                    .sort((a, b) => new Date(b.date) - new Date(a.date))
+                    .slice(0, 5)
+                    .map(checkin => `
+                      <tr class="hover:bg-gray-50 transition-colors">
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${checkin.date}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-primary">+10</td>
+                      </tr>
+                    `)
+                    .join('') || `
+                      <tr>
+                        <td colspan="2" class="px-6 py-4 text-center text-gray-500">暂无签到记录</td>
+                      </tr>
+                    `}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        
+        ${createFooter()}
+      `;
+      
+      return container;
+    }
+
+    // 创建管理员仪表盘
+    function createAdminDashboard() {
+      if (!state.currentUser || !state.currentUser.isAdmin) {
+        navigateTo('login');
+        return;
+      }
+      
+      const container = document.createElement('div');
+      container.className = 'min-h-screen bg-gray-50 flex flex-col';
+      
+      container.innerHTML = `
+        ${createHeader()}
+        
+        <div class="flex-grow container mx-auto px-4 py-8">
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="bg-white rounded-xl shadow-md p-6 transform transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-gray-500 text-sm">用户总数</p>
+                  <h3 class="text-2xl font-bold text-gray-800 mt-1">${db.users.filter(user => !user.isAdmin).length}</h3>
+                </div>
+                <div class="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+                  <i class="fa fa-users text-xl text-primary"></i>
+                </div>
+              </div>
+            </div>
+            
+            <div class="bg-white rounded-xl shadow-md p-6 transform transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-gray-500 text-sm">商品总数</p>
+                  <h3 class="text-2xl font-bold text-gray-800 mt-1">${db.products.length}</h3>
+                </div>
+                <div class="w-12 h-12 rounded-full bg-secondary/10 flex items-center justify-center">
+                  <i class="fa fa-shopping-bag text-xl text-secondary"></i>
+                </div>
+              </div>
+            </div>
+            
+            <div class="bg-white rounded-xl shadow-md p-6 transform transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-gray-500 text-sm">待处理密码请求</p>
+                  <h3 class="text-2xl font-bold text-gray-800 mt-1">${db.passwordRequests.filter(req => req.status === 'pending').length}</h3>
+                </div>
+                <div class="w-12 h-12 rounded-full bg-warning/10 flex items-center justify-center">
+                  <i class="fa fa-key text-xl text-warning"></i>
+                </div>
+              </div>
+            </div>
+            
+            <div class="bg-white rounded-xl shadow-md p-6 transform transition-all duration-300 hover:shadow-lg hover:-translate-y-1">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-gray-500 text-sm">待处理兑换请求</p>
+                  <h3 class="text-2xl font-bold text-gray-800 mt-1">${db.exchangeRequests.filter(req => req.status === 'pending').length}</h3>
+                </div>
+                <div class="w-12 h-12 rounded-full bg-success/10 flex items-center justify-center">
+                  <i class="fa fa-exchange text-xl text-success"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div class="bg-white rounded-2xl shadow-lg p-6 transform transition-all duration-300 hover:shadow-xl">
+              <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-bold text-gray-800">待处理密码请求</h2>
+              </div>
+              <!-- 新增部分：显示普通用户信息 -->
+              <div class="bg-white rounded-2xl shadow-lg p-6 transform transition-all duration-300 hover:shadow-xl mt-8">
+                <h2 class="text-xl font-bold text-gray-800">普通用户管理</h2>
+                <div class="overflow-x-auto">
+                  <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                      <tr>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">用户名</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">积分</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">充值积分</th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                      ${db.users.filter(user => !user.isAdmin).map(user => `
+                        <tr class="hover:bg-gray-50 transition-colors">
+                          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${user.username}</td>
+                          <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-primary">${user.points}</td>
+                          <td class="px-6 py-4 whitespace-nowrap">
+                            <input type="number" id="recharge-${user.id}" class="w-full pl-2 pr-2 py-1 border border-gray-300 rounded-lg form-input-focus" placeholder="输入充值积分">
+                          </td>
+                          <td class="px-6 py-4 whitespace-nowrap">
+                            <button type="button" class="px-2 py-1 bg-primary hover:bg-primary/90 text-white rounded-lg transition-all duration-300 transform hover:scale-[1.02] btn-hover" onclick="handleRecharge(${user.id})">充值</button>
+                            <button type="button" class="px-2 py-1 bg-danger hover:bg-danger/90 text-white rounded-lg transition-all duration-300 transform hover:scale-[1.02] btn-hover" onclick="handleDeleteUser(${user.id})">删除</button>
+                          </td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        ${createFooter()}
+      `;
+      
+      return container;
+    }
+
+    // 处理充值积分
+    function handleRecharge(userId) {
+      const rechargeInput = document.getElementById(`recharge-${userId}`);
+      const rechargePoints = parseInt(rechargeInput.value, 10);
+
+      if (isNaN(rechargePoints) || rechargePoints <= 0) {
+        showToast('请输入有效的充值积分', 'error');
+        return;
+      }
+
+      const userIndex = db.users.findIndex(user => user.id === userId);
+      if (userIndex !== -1) {
+        db.users[userIndex].points += rechargePoints;
+        saveDB();
+        showToast('充值成功', 'success');
+        render();
+      }
+    }
+
+    // 处理删除用户
+    function handleDeleteUser(userId) {
+      if (confirm('确定要删除此用户吗？')) {
+        db.users = db.users.filter(user => user.id !== userId);
+        db.checkins = db.checkins.filter(checkin => checkin.userId !== userId);
+        db.exchangeRequests = db.exchangeRequests.filter(request => request.userId !== userId);
+        saveDB();
+        showToast('用户已删除', 'success');
+        render();
+      }
+    }
+
+    // 创建头部
+    function createHeader() {
+      return `
+        <header class="bg-white shadow-md">
+          <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <h1 class="text-2xl font-bold text-primary">签到系统</h1>
+            <div class="flex items-center space-x-4">
+              ${state.currentUser && state.currentUser.isAdmin ? `
+                <button type="button" class="text-sm text-primary hover:text-primary/80 transition-colors" onclick="navigateTo('adminProductList')">
+                  商品管理
+                </button>
+              ` : ''}
+              <button type="button" class="text-sm text-primary hover:text-primary/80 transition-colors" onclick="logout()">
+                退出登录
+              </button>
+            </div>
+          </div>
+        </header>
+      `;
+    }
+
+    // 创建底部
+    function createFooter() {
+      return `
+        <footer class="bg-white shadow-md">
+          <div class="container mx-auto px-4 py-3 text-center text-gray-500">
+            &copy; 2025 签到系统. 保留所有权利.
+          </div>
+        </footer>
+      `;
+    }
+
+    // 退出登录
+    function logout() {
+      state.currentUser = null;
+      navigateTo('login');
+    }
+
+    // 创建商品列表页面
+    function createProductListPage() {
+      if (!state.currentUser) {
+        navigateTo('login');
+        return;
+      }
+      
+      const container = document.createElement('div');
+      container.className = 'min-h-screen bg-gray-50 flex flex-col';
+      
+      container.innerHTML = `
+        ${createHeader()}
+        
+        <div class="flex-grow container mx-auto px-4 py-8">
+          <h2 class="text-2xl font-bold text-gray-800 mb-6">积分商城</h2>
+          
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            ${db.products.map(product => `
+              <div class="bg-white rounded-2xl shadow-lg p-6 transform transition-all duration-300 hover:shadow-xl">
+                <div class="flex flex-col items-center">
+                  <div class="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mb-4">
+                    <i class="fa fa-shopping-bag text-3xl text-primary"></i>
+                  </div>
+                  <h3 class="text-xl font-bold text-gray-800 mb-2">${product.name}</h3>
+                  <p class="text-gray-600 mb-4">${product.description}</p>
+                  <p class="text-gray-600 mb-4">所需积分: <span class="text-primary font-semibold">${product.points}</span></p>
+                  <p class="text-gray-600 mb-4">库存: <span class="${product.quantity > 0 ? 'text-success' : 'text-danger'} font-semibold">${product.quantity}</span></p>
+                  <button type="button" class="px-4 py-2 bg-primary hover:bg-primary/90 text-white rounded-lg transition-all duration-300 transform hover:scale-[1.02] btn-hover" onclick="handleExchangeProduct(${product.id})" ${product.quantity <= 0 || state.currentUser.points < product.points ? 'disabled' : ''}>
+                    兑换
+                  </button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+        
+        ${createFooter()}
+      `;
+      
+      return container;
+    }
+
+    // 创建商品详情页面
+    function createProductDetailPage() {
+      if (!state.currentUser) {
+        navigateTo('login');
+        return;
+      }
+      
+      const product = state.currentProduct;
+      if (!product) {
+        navigateTo('productList');
+        return;
+      }
+      
+      const container = document.createElement('div');
+      container.className = 'min-h-screen bg-gray-50 flex flex-col';
+      
+      container.innerHTML = `
+        ${createHeader()}
+        
+        <div class="flex-grow container mx-auto px-4 py-8">
+          <div class="bg-white rounded-2xl shadow-lg p-6 transform transition-all duration-300 hover:shadow-xl">
+            <div class="flex flex-col items-center">
+              <div class="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mb-4">
+                <i class="fa fa-shopping-bag text-3xl text-primary"></i>
+              </div>
+              <h2 class="text-2xl font-bold text-gray-800 mb-2">${product.name}</h2>
+              <p class="text-gray-600 mb-4">${product.description}</p>
+              <p class="text-gray-600 mb-4">所需积分: <span class="text-primary font-semibold">${product.points}</span></p>
+              <p class="text-gray-600 mb-4">库存: <span class="${product.quantity > 0 ? 'text-success' : 'text-danger'} font-semibold">${product.quantity}</span></p>
+              <button type="button" class="px-4 py-2 bg-primary hover:bg-primary/90 text-white rounded-lg transition-all duration-300 transform hover:scale-[1.02] btn-hover" onclick="handleExchangeProduct(${product.id})" ${product.quantity <= 0 || state.currentUser.points < product.points ? 'disabled' : ''}>
+                兑换
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        ${createFooter()}
+      `;
+      
+      return container;
+    }
+
+    // 创建管理员商品列表页面
+    function createAdminProductListPage() {
+      if (!state.currentUser || !state.currentUser.isAdmin) {
+        navigateTo('login');
+        return;
+      }
+      
+      const container = document.createElement('div');
+      container.className = 'min-h-screen bg-gray-50 flex flex-col';
+      
+      container.innerHTML = `
+        ${createHeader()}
+        
+        <div class="flex-grow container mx-auto px-4 py-8">
+          <div class="flex justify-between items-center mb-6">
+            <h2 class="text-2xl font-bold text-gray-800">商品管理</h2>
+            <button type="button" class="px-4 py-2 bg-primary hover:bg-primary/90 text-white rounded-lg transition-all duration-300 transform hover:scale-[1.02] btn-hover" onclick="navigateTo('adminAddProduct')">
+              添加商品
+            </button>
+          </div>
+          
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">商品名称</th>
+                  <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">所需积分</th>
+                  <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">库存</th>
+                  <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                </tr>
+              </thead>
+              <tbody class="bg-white divide-y divide-gray-200">
+                ${db.products.map(product => `
+                  <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${product.name}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-primary">${product.points}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-${product.quantity > 0 ? 'success' : 'danger'}">${product.quantity}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                      <button type="button" class="px-2 py-1 bg-primary hover:bg-primary/90 text-white rounded-lg transition-all duration-300 transform hover:scale-[1.02] btn-hover" onclick="editProduct(${product.id})">
+                        编辑
+                      </button>
+                      <button type="button" class="px-2 py-1 bg-danger hover:bg-danger/90 text-white rounded-lg transition-all duration-300 transform hover:scale-[1.02] btn-hover" onclick="handleAdminDeleteProduct(${product.id})">
+                        删除
+                      </button>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+        ${createFooter()}
+      `;
+      
+      return container;
+    }
+
+    // 编辑商品
+    function editProduct(productId) {
+      const product = db.products.find(p => p.id === productId);
+      if (product) {
+        state.productForm = { ...product };
+        navigateTo('adminEditProduct');
+      }
+    }
+
+    // 创建管理员添加商品页面
+    function createAdminAddProductPage() {
+      if (!state.currentUser || !state.currentUser.isAdmin) {
+        navigateTo('login');
+        return;
+      }
+      
+      const container = document.createElement('div');
+      container.className = 'min-h-screen bg-gray-50 flex flex-col';
+      
+      container.innerHTML = `
+        ${createHeader()}
+        
+        <div class="flex-grow container mx-auto px-4 py-8">
+          <div class="bg-white rounded-2xl shadow-lg p-6 transform transition-all duration-300 hover:shadow-xl">
+            <div class="text-center mb-8">
+              <h2 class="text-2xl font-bold text-gray-800">添加商品</h2>
+            </div>
+            
+            <div class="space-y-4">
+              <div>
+                <label for="admin-product-name" class="block text-sm font-medium text-gray-700 mb-1">商品名称</label>
+                <input type="text" id="admin-product-name" class="w-full pl-2 pr-2 py-1 border border-gray-300 rounded-lg form-input-focus" placeholder="请输入商品名称">
+              </div>
+              
+              <div>
+                <label for="admin-product-points" class="block text-sm font-medium text-gray-700 mb-1">所需积分</label>
+                <input type="number" id="admin-product-points" class="w-full pl-2 pr-2 py-1 border border-gray-300 rounded-lg form-input-focus" placeholder="请输入所需积分">
+              </div>
+              
+              <div>
+                <label for="admin-product-quantity" class="block text-sm font-medium text-gray-700 mb-1">库存数量</label>
+                <input type="number" id="admin-product-quantity" class="w-full pl-2 pr-2 py-1 border border-gray-300 rounded-lg form-input-focus" placeholder="请输入库存数量">
+              </div>
+              
+              <div>
+                <label for="admin-product-description" class="block text-sm font-medium text-gray-700 mb-1">商品描述</label>
+                <textarea id="admin-product-description" class="w-full pl-2 pr-2 py-1 border border-gray-300 rounded-lg form-input-focus" rows="3" placeholder="请输入商品描述"></textarea>
+              </div>
+              
+              <button type="button" class="w-full bg-primary hover:bg-primary/90 text-white font-medium py-2 px-4 rounded-lg transition-all duration-300 transform hover:scale-[1.02] btn-hover" onclick="handleAdminAddProduct()">
+                添加商品
+              </button>
+              
+              <button type="button" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg transition-all duration-300" onclick="navigateTo('adminProductList')">
+                返回商品列表
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        ${createFooter()}
+      `;
+      
+      return container;
+    }
+
+    // 创建管理员编辑商品页面
+    function createAdminEditProductPage() {
+      if (!state.currentUser || !state.currentUser.isAdmin) {
+        navigateTo('login');
+        return;
+      }
+      
+      const container = document.createElement('div');
+      container.className = 'min-h-screen bg-gray-50 flex flex-col';
+      
+      container.innerHTML = `
+        ${createHeader()}
+        
+        <div class="flex-grow container mx-auto px-4 py-8">
+          <div class="bg-white rounded-2xl shadow-lg p-6 transform transition-all duration-300 hover:shadow-xl">
+            <div class="text-center mb-8">
+              <h2 class="text-2xl font-bold text-gray-800">编辑商品</h2>
+            </div>
+            
+            <div class="space-y-4">
+              <div>
+                <label for="admin-product-name" class="block text-sm font-medium text-gray-700 mb-1">商品名称</label>
+                <input type="text" id="admin-product-name" class="w-full pl-2 pr-2 py-1 border border-gray-300 rounded-lg form-input-focus" placeholder="请输入商品名称" value="${state.productForm.name}">
+              </div>
+              
+              <div>
+                <label for="admin-product-points" class="block text-sm font-medium text-gray-700 mb-1">所需积分</label>
+                <input type="number" id="admin-product-points" class="w-full pl-2 pr-2 py-1 border border-gray-300 rounded-lg form-input-focus" placeholder="请输入所需积分" value="${state.productForm.points}">
+              </div>
+              
+              <div>
+                <label for="admin-product-quantity" class="block text-sm font-medium text-gray-700 mb-1">库存数量</label>
+                <input type="number" id="admin-product-quantity" class="w-full pl-2 pr-2 py-1 border border-gray-300 rounded-lg form-input-focus" placeholder="请输入库存数量" value="${state.productForm.quantity}">
+              </div>
+              
+              <div>
+                <label for="admin-product-description" class="block text-sm font-medium text-gray-700 mb-1">商品描述</label>
+                <textarea id="admin-product-description" class="w-full pl-2 pr-2 py-1 border border-gray-300 rounded-lg form-input-focus" rows="3" placeholder="请输入商品描述">${state.productForm.description}</textarea>
+              </div>
+              
+              <button type="button" class="w-full bg-primary hover:bg-primary/90 text-white font-medium py-2 px-4 rounded-lg transition-all duration-300 transform hover:scale-[1.02] btn-hover" onclick="handleAdminEditProduct(${state.productForm.id})">
+                保存修改
+              </button>
+              
+              <button type="button" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg transition-all duration-300" onclick="navigateTo('adminProductList')">
+                返回商品列表
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        ${createFooter()}
+      `;
+      
+      return container;
+    }
+
+    // 页面加载完成后渲染
+    window.addEventListener('load', () => {
+      loadDB();
+      render();
+    });
+  </script>
+  <div id="app"></div>
+</body>
+</html>
