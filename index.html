@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>宁波地铁验证系统</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#2563eb',
+            secondary: '#10b981',
+            admin: '#8b5cf6',
+            neutral: '#1f2937'
+          }
+        }
+      }
+    }
+  </script>
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .transition-custom { transition: all 0.3s ease; }
+      .card-shadow { box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+    }
+  </style>
+</head>
+<body class="bg-gray-50 font-sans text-neutral min-h-screen">
+  <!-- 管理员登录按钮 -->
+  <button id="adminBtn" class="fixed top-4 right-4 bg-neutral text-white px-4 py-2 rounded-lg hover:bg-opacity-90 transition-custom z-50">
+    <<i class="fa fa-lock mr-2"></</i>管理员登录
+  </button>
+
+  <!-- 问答验证页面 -->
+  <div id="quizPage" class="min-h-screen flex items-center justify-center p-4 transition-custom">
+    <div class="w-full max-w-md bg-white rounded-xl card-shadow p-6 md:p-8">
+      <h1 class="text-2xl font-bold text-center mb-8">身份验证</h1>
+      <div class="mb-6">
+        <p id="question" class="text-lg font-medium mb-4">你家在哪个地铁站附近？</p>
+        <input type="text" id="answerInput" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-custom" placeholder="请输入答案">
+      </div>
+      <button id="submitQuiz" class="w-full bg-primary text-white py-3 rounded-lg font-medium hover:bg-primary/90 transition-custom">
+        提交答案
+      </button>
+      <div id="quizFeedback" class="mt-4 text-center hidden"></div>
+    </div>
+  </div>
+
+  <!-- 主页内容 -->
+  <div id="homePage" class="min-h-screen hidden p-4">
+    <header class="bg-white card-shadow py-4 mb-6">
+      <div class="container mx-auto px-4 flex justify-between items-center">
+        <h1 id="homeTitle" class="text-2xl font-bold">欢迎来到宁波地铁信息页</h1>
+        <button id="logoutBtn" class="text-primary hover:underline transition-custom">
+          <<i class="fa fa-sign-out mr-1"></</i>重新验证
+        </button>
+      </div>
+    </header>
+
+    <main class="container mx-auto max-w-4xl">
+      <!-- 管理员配置内容区 -->
+      <div class="bg-white rounded-xl card-shadow p-6 mb-6">
+        <div id="configContent" class="flex flex-col items-center">
+          <img id="homeImage" src="" alt="展示图片" class="w-full h-auto rounded-lg mb-6 max-h-96 object-cover">
+          <p id="homeText" class="text-gray-700 leading-relaxed text-center">加载内容中...</p>
+        </div>
+      </div>
+
+      <!-- 留言区 -->
+      <div class="bg-white rounded-xl card-shadow p-6">
+        <h2 class="text-xl font-bold mb-4">用户留言</h2>
+        <div class="mb-4">
+          <textarea id="messageInput" rows="3" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-custom" placeholder="请输入你的留言..."></textarea>
+        </div>
+        <button id="submitMessage" class="bg-secondary text-white px-4 py-2 rounded-lg hover:bg-secondary/90 transition-custom">
+          <<i class="fa fa-paper-plane mr-2"></</i>提交留言
+        </button>
+        
+        <div class="mt-6">
+          <h3 class="font-medium mb-3">留言列表</h3>
+          <div id="messageList" class="space-y-3 max-h-60 overflow-y-auto">
+            <div class="text-center text-gray-500 py-6">暂无留言</div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- 管理员登录弹窗 -->
+  <div id="adminLoginModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+    <div class="bg-white rounded-xl card-shadow p-6 w-full max-w-md">
+      <h2 class="text-xl font-bold mb-6 text-center">管理员登录</h2>
+      <div class="mb-4">
+        <label class="block text-sm font-medium mb-1">密码</label>
+        <input type="password" id="adminPwd" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-admin focus:border-admin outline-none transition-custom" placeholder="请输入管理员密码">
+      </div>
+      <div class="flex space-x-3">
+        <button id="doLogin" class="flex-1 bg-admin text-white py-2 rounded-lg hover:bg-admin/90 transition-custom">登录</button>
+        <button id="closeLogin" class="flex-1 border border-gray-300 py-2 rounded-lg hover:bg-gray-50 transition-custom">取消</button>
+      </div>
+      <div id="loginError" class="mt-4 text-center text-red-500 hidden">密码错误</div>
+    </div>
+  </div>
+
+  <!-- 管理员面板 -->
+  <div id="adminPanel" class="fixed inset-0 bg-white z-50 hidden overflow-auto">
+    <header class="bg-neutral text-white py-4 px-6">
+      <div class="flex justify-between items-center">
+        <h2 class="text-xl font-bold">管理员面板</h2>
+        <button id="exitAdmin" class="bg-red-500 px-4 py-2 rounded-lg hover:bg-red-600 transition-custom">
+          <<i class="fa fa-sign-out mr-1"></</i>退出
+        </button>
+      </div>
+    </header>
+    <main class="p-6 max-w-3xl mx-auto">
+      <div class="bg-gray-50 p-6 rounded-lg mb-6">
+        <h3 class="text-lg font-semibold mb-4">配置主页内容</h3>
+        <div class="mb-4">
+          <label class="block text-sm font-medium mb-1">主页标题</label>
+          <input type="text" id="configTitle" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-admin focus:border-admin outline-none transition-custom">
+        </div>
+        <div class="mb-4">
+          <label class="block text-sm font-medium mb-1">主页文字</label>
+          <textarea id="configText" rows="4" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-admin focus:border-admin outline-none transition-custom"></textarea>
+        </div>
+        <div class="mb-4">
+          <label class="block text-sm font-medium mb-1">图片图床链接</label>
+          <input type="text" id="configImage" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-admin focus:border-admin outline-none transition-custom" placeholder="输入图片URL">
+        </div>
+        <button id="saveConfig" class="bg-admin text-white px-6 py-2 rounded-lg hover:bg-admin/90 transition-custom">
+          <<i class="fa fa-save mr-1"></</i>保存配置
+        </button>
+      </div>
+
+      <div class="bg-gray-50 p-6 rounded-lg">
+        <h3 class="text-lg font-semibold mb-4">管理留言</h3>
+        <div id="adminMessageList" class="space-y-3 max-h-80 overflow-y-auto">
+          <div class="text-center text-gray-500 py-6">暂无留言</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // 全局状态
+    const state = {
+      currentQ: 0,
+      questions: [
+        { text: "你家在哪个地铁站附近？", answer: "樱花公园站" },
+        { text: "这是一个换乘站，它可以换乘什么线路？", answer: "1号线和3号线" },
+        { text: "你在哪里？", answer: "宁波市" }
+      ]
+    };
+
+    // DOM元素
+    const el = {
+      // 问答页面
+      quizPage: document.getElementById('quizPage'),
+      question: document.getElementById('question'),
+      answerInput: document.getElementById('answerInput'),
+      submitQuiz: document.getElementById('submitQuiz'),
+      quizFeedback: document.getElementById('quizFeedback'),
+      
+      // 主页
+      homePage: document.getElementById('homePage'),
+      homeTitle: document.getElementById('homeTitle'),
+      homeImage: document.getElementById('homeImage'),
+      homeText: document.getElementById('homeText'),
+      logoutBtn: document.getElementById('logoutBtn'),
+      
+      // 留言区
+      messageInput: document.getElementById('messageInput'),
+      submitMessage: document.getElementById('submitMessage'),
+      messageList: document.getElementById('messageList'),
+      
+      // 管理员登录
+      adminBtn: document.getElementById('adminBtn'),
+      adminLoginModal: document.getElementById('adminLoginModal'),
+      adminPwd: document.getElementById('adminPwd'),
+      doLogin: document.getElementById('doLogin'),
+      closeLogin: document.getElementById('closeLogin'),
+      loginError: document.getElementById('loginError'),
+      
+      // 管理员面板
+      adminPanel: document.getElementById('adminPanel'),
+      exitAdmin: document.getElementById('exitAdmin'),
+      configTitle: document.getElementById('configTitle'),
+      configText: document.getElementById('configText'),
+      configImage: document.getElementById('configImage'),
+      saveConfig: document.getElementById('saveConfig'),
+      adminMessageList: document.getElementById('adminMessageList')
+    };
+
+    // 初始化
+    function init() {
+      bindEvents();
+      loadHomeContent();
+      loadMessages();
+    }
+
+    // 绑定事件
+    function bindEvents() {
+      // 问答相关
+      el.submitQuiz.addEventListener('click', checkAnswer);
+      el.answerInput.addEventListener('keypress', e => e.key === 'Enter' && checkAnswer());
+      
+      // 主页相关
+      el.logoutBtn.addEventListener('click', logout);
+      
+      // 留言相关
+      el.submitMessage.addEventListener('click', submitMessage);
+      
+      // 管理员登录相关
+      el.adminBtn.addEventListener('click', () => el.adminLoginModal.classList.remove('hidden'));
+      el.closeLogin.addEventListener('click', () => el.adminLoginModal.classList.add('hidden'));
+      el.doLogin.addEventListener('click', adminLogin);
+      
+      // 管理员面板相关
+      el.exitAdmin.addEventListener('click', () => el.adminPanel.classList.add('hidden'));
+      el.saveConfig.addEventListener('click', saveConfig);
+    }
+
+    // 检查答案
+    function checkAnswer() {
+      const userAns = el.answerInput.value.trim();
+      const correctAns = state.questions[state.currentQ].answer;
+      
+      if (userAns === correctAns) {
+        showFeedback('正确！', 'text-green-500');
+        setTimeout(() => {
+          el.quizFeedback.classList.add('hidden');
+          el.answerInput.value = '';
+          state.currentQ++;
+          
+          if (state.currentQ < state.questions.length) {
+            el.question.textContent = state.questions[state.currentQ].text;
+          } else {
+            // 全部答对，进入主页
+            el.quizPage.classList.add('hidden');
+            el.homePage.classList.remove('hidden');
+          }
+        }, 1000);
+      } else {
+        showFeedback('答案错误，请重试', 'text-red-500');
+      }
+    }
+
+    // 显示反馈
+    function showFeedback(text, className) {
+      el.quizFeedback.textContent = text;
+      el.quizFeedback.className = `mt-4 text-center ${className}`;
+      el.quizFeedback.classList.remove('hidden');
+    }
+
+    // 退出主页，返回问答页面
+    function logout() {
+      state.currentQ = 0;
+      el.question.textContent = state.questions[0].text;
+      el.homePage.classList.add('hidden');
+      el.quizPage.classList.remove('hidden');
+    }
+
+    // 管理员登录
+    async function adminLogin() {
+      const pwd = el.adminPwd.value;
+      try {
+        const res = await fetch('/api/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pwd })
+        });
+        const data = await res.json();
+        if (data.success) {
+          el.adminLoginModal.classList.add('hidden');
+          el.adminPanel.classList.remove('hidden');
+          loadConfigForEdit();
+          loadAdminMessages();
+        } else {
+          el.loginError.classList.remove('hidden');
+        }
+      } catch (err) {
+        console.error('登录失败:', err);
+      }
+    }
+
+    // 加载主页内容
+    async function loadHomeContent() {
+      try {
+        const res = await fetch('/api/content');
+        const data = await res.json();
+        el.homeTitle.textContent = data.title || '欢迎来到宁波地铁信息页';
+        el.homeText.textContent = data.text || '樱花公园站是宁波地铁1号线和3号线的换乘站，交通便利。';
+        el.homeImage.src = data.image || 'https://picsum.photos/800/400';
+        el.configTitle.value = data.title || '';
+        el.configText.value = data.text || '';
+        el.configImage.value = data.image || '';
+      } catch (err) {
+        console.error('加载内容失败:', err);
+      }
+    }
+
+    // 加载配置用于编辑
+    async function loadConfigForEdit() {
+      try {
+        const res = await fetch('/api/content');
+        const data = await res.json();
+        el.configTitle.value = data.title || '';
+        el.configText.value = data.text || '';
+        el.configImage.value = data.image || '';
+      } catch (err) {
+        console.error('加载配置失败:', err);
+      }
+    }
+
+    // 保存配置
+    async function saveConfig() {
+      const config = {
+        title: el.configTitle.value,
+        text: el.configText.value,
+        image: el.configImage.value
+      };
+      try {
+        await fetch('/api/content', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(config)
+        });
+        loadHomeContent();
+        alert('配置保存成功');
+      } catch (err) {
+        console.error('保存配置失败:', err);
+      }
+    }
+
+    // 提交留言
+    async function submitMessage() {
+      const content = el.messageInput.value.trim();
+      if (!content) return;
+      
+      try {
+        await fetch('/api/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content, time: new Date().toLocaleString() })
+        });
+        el.messageInput.value = '';
+        loadMessages();
+        loadAdminMessages();
+      } catch (err) {
+        console.error('提交留言失败:', err);
+      }
+    }
+
+    // 加载用户留言
+    async function loadMessages() {
+      try {
+        const res = await fetch('/api/messages');
+        const messages = await res.json();
+        if (messages.length === 0) {
+          el.messageList.innerHTML = '<div class="text-center text-gray-500 py-6">暂无留言</div>';
+          return;
+        }
+        el.messageList.innerHTML = messages.map(msg => `
+          <div class="p-3 border border-gray-100 rounded-lg bg-gray-50">
+            <p class="text-gray-700">${msg.content}</p>
+            <p class="text-xs text-gray-500 mt-1">${msg.time}</p>
+          </div>
+        `).join('');
+      } catch (err) {
+        console.error('加载留言失败:', err);
+      }
+    }
+
+    // 加载管理员留言列表
+    async function loadAdminMessages() {
+      try {
+        const res = await fetch('/api/messages');
+        const messages = await res.json();
+        if (messages.length === 0) {
+          el.adminMessageList.innerHTML = '<div class="text-center text-gray-500 py-6">暂无留言</div>';
+          return;
+        }
+        el.adminMessageList.innerHTML = messages.map((msg, idx) => `
+          <div class="p-3 border border-gray-100 rounded-lg bg-gray-50 flex justify-between items-start">
+            <div>
+              <p class="text-gray-700">${msg.content}</p>
+              <p class="text-xs text-gray-500 mt-1">${msg.time}</p>
+            </div>
+            <button onclick="deleteMessage(${idx})" class="text-red-500 hover:text-red-600 transition-custom">
+              <<i class="fa fa-trash"></</i>
+            </button>
+          </div>
+        `).join('');
+      } catch (err) {
+        console.error('加载管理员留言失败:', err);
+      }
+    }
+
+    // 删除留言
+    async function deleteMessage(index) {
+      try {
+        await fetch(`/api/messages/${index}`, { method: 'DELETE' });
+        loadMessages();
+        loadAdminMessages();
+      } catch (err) {
+        console.error('删除留言失败:', err);
+      }
+    }
+
+    // 页面加载完成后初始化
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
