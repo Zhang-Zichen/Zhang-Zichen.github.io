@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>答题验证网站</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: Arial, sans-serif; }
+        .container { max-width: 600px; margin: 50px auto; padding: 20px; text-align: center; }
+        .question-card, .home-page, .admin-login, .admin-panel { display: none; }
+        .active { display: block; }
+        input, button { padding: 10px 20px; margin: 10px; border: 1px solid #ddd; border-radius: 4px; }
+        button { background: #4CAF50; color: white; cursor: pointer; border: none; }
+        button:hover { background: #45a049; }
+        .error { color: red; margin: 10px 0; }
+        #content-display { margin: 30px 0; }
+        #content-display img { max-width: 100%; margin: 20px 0; }
+        .admin-btn { position: fixed; top: 20px; right: 20px; }
+    </style>
+</head>
+<body>
+    <!-- 答题界面 -->
+    <div class="container question-card active" id="question1">
+        <h2>问题1：你家在哪个地铁站附近？</h2>
+        <input type="text" id="ans1" placeholder="请输入答案">
+        <button onclick="checkAnswer(1)">提交</button>
+        <div class="error" id="err1"></div>
+    </div>
+
+    <div class="container question-card" id="question2">
+        <h2>问题2：这是一个换乘站，它可以换乘什么线路？</h2>
+        <input type="text" id="ans2" placeholder="请输入答案（例：1号线和2号线）">
+        <button onclick="checkAnswer(2)">提交</button>
+        <div class="error" id="err2"></div>
+    </div>
+
+    <div class="container question-card" id="question3">
+        <h2>问题3：你在哪个市？</h2>
+        <input type="text" id="ans3" placeholder="请输入答案">
+        <button onclick="checkAnswer(3)">提交</button>
+        <div class="error" id="err3"></div>
+    </div>
+
+    <!-- 主页 -->
+    <div class="container home-page" id="homePage">
+        <button class="admin-btn" onclick="showAdminLogin()">管理员登录</button>
+        <h1>欢迎进入网站主页！</h1>
+        <div id="content-display">
+            <!-- 后端渲染的图片和文字将显示在这里 -->
+            <p>加载中...</p>
+        </div>
+    </div>
+
+    <!-- 管理员登录 -->
+    <div class="container admin-login" id="adminLogin">
+        <h2>管理员登录</h2>
+        <input type="password" id="adminPwd" placeholder="请输入管理员密码">
+        <button onclick="loginAdmin()">登录</button>
+        <div class="error" id="loginErr"></div>
+    </div>
+
+    <!-- 管理员面板 -->
+    <div class="container admin-panel" id="adminPanel">
+        <h2>管理员面板</h2>
+        <div>
+            <h3>设置主页内容</h3>
+            <input type="text" id="homeText" placeholder="输入主页文字内容">
+            <br>
+            <label>上传主页图片：</label>
+            <input type="file" id="homeImg" accept="image/*">
+            <br>
+            <button onclick="uploadContent()">保存内容</button>
+        </div>
+        <div style="margin-top: 20px;">
+            <h3>修改管理员密码</h3>
+            <input type="password" id="newPwd" placeholder="输入新密码">
+            <button onclick="changeAdminPwd()">修改密码</button>
+            <div class="error" id="pwdErr"></div>
+        </div>
+        <button onclick="logoutAdmin()" style="margin-top: 30px; background: #f44336;">退出登录</button>
+    </div>
+
+    <script>
+        // 正确答案
+        const correctAnswers = { 1: "樱花公园站", 2: "1号线和3号线", 3: "宁波市" };
+        let currentQuestion = 1;
+
+        // 检查答案
+        function checkAnswer(questionNum) {
+            const userAns = document.getElementById(`ans${questionNum}`).value.trim();
+            const errElem = document.getElementById(`err${questionNum}`);
+            
+            if (userAns === correctAnswers[questionNum]) {
+                errElem.style.color = "green";
+                errElem.textContent = "回答正确！";
+                setTimeout(() => {
+                    if (questionNum === 3) {
+                        // 全部答对，进入主页并加载内容
+                        document.querySelector(`#question${currentQuestion}`).classList.remove("active");
+                        document.getElementById("homePage").classList.add("active");
+                        loadHomeContent();
+                    } else {
+                        // 进入下一题
+                        document.querySelector(`#question${currentQuestion}`).classList.remove("active");
+                        currentQuestion++;
+                        document.querySelector(`#question${currentQuestion}`).classList.add("active");
+                    }
+                }, 1000);
+            } else {
+                errElem.style.color = "red";
+                errElem.textContent = "回答错误，请重新尝试！";
+            }
+        }
+
+        // 显示管理员登录
+        function showAdminLogin() {
+            document.getElementById("homePage").classList.remove("active");
+            document.getElementById("adminLogin").classList.add("active");
+        }
+
+        // 管理员登录
+        function loginAdmin() {
+            const pwd = document.getElementById("adminPwd").value;
+            const errElem = document.getElementById("loginErr");
+
+            fetch("backend.php?action=login", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: `password=${encodeURIComponent(pwd)}`
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById("adminLogin").classList.remove("active");
+                    document.getElementById("adminPanel").classList.add("active");
+                } else {
+                    errElem.textContent = data.msg;
+                }
+            });
+        }
+
+        // 加载主页内容
+        function loadHomeContent() {
+            fetch("backend.php?action=getHomeContent")
+            .then(res => res.json())
+            .then(data => {
+                const displayElem = document.getElementById("content-display");
+                displayElem.innerHTML = `
+                    <p>${data.text || "暂无文字内容"}</p>
+                    ${data.imgUrl ? `<img src="${data.imgUrl}" alt="主页图片">` : "<p>暂无图片</p>"}
+                `;
+            });
+        }
+
+        // 上传主页内容（文字+图片）
+        function uploadContent() {
+            const text = document.getElementById("homeText").value;
+            const imgFile = document.getElementById("homeImg").files[0];
+            const formData = new FormData();
+
+            formData.append("text", text);
+            if (imgFile) formData.append("img", imgFile);
+
+            fetch("backend.php?action=uploadContent", {
+                method: "POST",
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) alert("内容保存成功！");
+                else alert("保存失败：" + data.msg);
+            });
+        }
+
+        // 修改管理员密码
+        function changeAdminPwd() {
+            const newPwd = document.getElementById("newPwd").value;
+            const errElem = document.getElementById("pwdErr");
+
+            if (!newPwd) {
+                errElem.textContent = "新密码不能为空！";
+                return;
+            }
+
+            fetch("backend.php?action=changePwd", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: `newPwd=${encodeURIComponent(newPwd)}`
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    errElem.style.color = "green";
+                    errElem.textContent = "密码修改成功！";
+                    document.getElementById("newPwd").value = "";
+                } else {
+                    errElem.textContent = data.msg;
+                }
+            });
+        }
+
+        // 管理员退出
+        function logoutAdmin() {
+            document.getElementById("adminPanel").classList.remove("active");
+            document.getElementById("homePage").classList.add("active");
+        }
+    </script>
+</body>
+</html>
