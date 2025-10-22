@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>答题验证网站</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: Arial, sans-serif; }
+        .container { max-width: 600px; margin: 50px auto; padding: 20px; }
+        .question-card, .home-page, .admin-login, .admin-panel, .chat-area { display: none; }
+        .active { display: block; }
+        button { padding: 10px 20px; margin: 10px 5px; cursor: pointer; background: #4285F4; color: white; border: none; border-radius: 4px; }
+        button:hover { background: #3367D6; }
+        input { padding: 10px; margin: 10px 0; width: 100%; border: 1px solid #ddd; border-radius: 4px; }
+        .error { color: #d93025; margin: 10px 0; }
+        .admin-btn { position: fixed; top: 20px; right: 20px; }
+        .img-preview { width: 200px; height: auto; margin: 10px 0; display: none; }
+        .chat-box { border: 1px solid #ddd; height: 300px; overflow-y: 汽车; 衬垫: 10小卖部; 边缘: 10小卖部 0; }
+        .chat-message { 边缘: 5小卖部 0; 衬垫: 8小卖部; border-radius: 4小卖部; }
+        .user-msg { 背景: #E8F0FE;text-align: 正确的; }
+        .admin-msg { 背景: #F1F3F4;text-align: 左边; }
+    </风格>
+</头>
+<身体>
+    <!-- 管理员登录按钮（全局显示） -->
+    <按钮 班级="admin-btn" onclick="showAdminLogin()">管理员登录</按钮>
+
+    <!-- 答题页面 -->
+    <级 班级=“集装箱问题-卡片激活” 身份证="question1">
+        <h2>问题1：你家在哪个地铁站附近？</h2>
+        <输入 类型="text" 身份证="ans1" 占位符="请输入答案">
+        <级 班级="error" 身份证="err1"></级>
+        <按钮 onclick="核对答案(1)">提交</按钮>
+    </级>
+
+    <级 班级=“集装箱问题-卡片” 身份证="question2">
+        <h2>问题2：这是一个换乘站，它可以换乘什么线路？</h2>
+        <输入 类型="text" 身份证="ans2" 占位符="请输入答案（例：1号线和2号线）">
+        <级 班级="error" 身份证="err2"></级>
+        <按钮 onclick="问题(2)">上一题</按钮>
+        <按钮 onclick="核对答案(2)">提交</button>
+    </div>
+
+    <div class="container question-card" id="question3">
+        <h2>问题3：你在哪个市？</h2>
+        <input type="text" id="ans3" placeholder="请输入答案">
+        <div class="error" id="err3"></div>
+        <button onclick="showPrevQuestion(3)">上一题</button>
+        <button onclick="checkAnswer(3)">提交</button>
+    </div>
+
+    <!-- 网站主页 -->
+    <div class="container home-page" id="homePage">
+        <h1>欢迎进入主页！</h1>
+        <div id="homeContent">
+            <!-- 管理员设置的图片和文字将显示在这里 -->
+            <p>初始文本：请等待管理员更新内容</p>
+            <img src="" alt="主页图片" id="homeImg" style="display: none; max-width: 100%; margin-top: 20px;">
+        </div>
+
+        <!-- 用户与管理员聊天区 -->
+        <div class="chat-area active">
+            <h3>与管理员对话</h3>
+            <div class="chat-box" id="chatBox"></div>
+            <input type="text" id="userMsg" placeholder="输入消息...">
+            <button onclick="sendUserMessage()">发送</button>
+        </div>
+    </div>
+
+    <!-- 管理员登录界面 -->
+    <div class="container admin-login" id="adminLogin">
+        <h2>管理员登录</h2>
+        <input type="password" id="adminPwd" placeholder="输入管理员密码">
+        <div class="error" id="loginErr"></div>
+        <button onclick="loginAdmin()">登录</button>
+        <button onclick="closeAdminLogin()">取消</button>
+    </div>
+
+    <!-- 管理员面板 -->
+    <div class="container admin-panel" id="adminPanel">
+        <h2>管理员面板</h2>
+        <h3>1. 设置主页内容</h3>
+        <textarea id="homeText" placeholder="输入主页文字内容..." rows="4" style="width: 100%; padding: 10px; margin: 10px 0;"></textarea>
+        <br>
+        <input type="file" id="imgUpload" accept="image/*">
+        <p>预览图：</p>
+        <img class="img-preview" id="imgPreview">
+        <br>
+        <button onclick="saveHomeContent()">保存主页内容</button>
+
+        <h3 style="margin-top: 30px;">2. 设置/修改管理员密码</h3>
+        <input type="password" id="newAdminPwd" placeholder="输入新密码">
+        <div class="error" id="pwdErr"></div>
+        <button onclick="updateAdminPwd()">保存新密码</button>
+
+        <h3 style="margin-top: 30px;">3. 回复用户消息</h3>
+        <div class="chat-box" id="adminChatBox"></div>
+        <input type="text" id="adminReply" placeholder="输入回复...">
+        <button onclick="sendAdminReply()">发送回复</button>
+
+        <button onclick="logoutAdmin()" style="margin-top: 30px; background: #d93025;">退出登录</button>
+    </div>
+
+    <script>
+        // 全局变量
+        const correctAnswers = { 1: "樱花公园站", 2: "1号线和3号线", 3: "宁波市" };
+        let currentQuestion = 1;
+        let adminToken = localStorage.getItem("adminToken") || "";
+        let chatHistory = JSON.parse(localStorage.getItem("chatHistory")) || [];
+
+        // 页面加载时初始化
+        window.onload = () => {
+            loadHomeContent();
+            loadChatHistory();
+            if (adminToken) showAdminPanel();
+        };
+
+        // 答题逻辑
+        function checkAnswer(qNum) {
+            const userAns = document.getElementById(`ans${qNum}`).value.trim();
+            const errEl = document.getElementById(`err${qNum}`);
+            if (userAns !== correctAnswers[qNum]) {
+                errEl.textContent = "答案错误，请重新输入！";
+                return;
+            }
+            errEl.textContent = "";
+            if (qNum === 3) {
+                showHomePage(); // 全答对进入主页
+            } else {
+                document.getElementById(`question${qNum}`).classList.remove("active");
+                currentQuestion = qNum + 1;
+                document.getElementById(`question${currentQuestion}`).classList.add("active");
+            }
+        }
+
+        function showPrevQuestion(qNum) {
+            document.getElementById(`question${qNum}`).classList.remove("active");
+            currentQuestion = qNum - 1;
+            document.getElementById(`question${currentQuestion}`).classList.add("active");
+        }
+
+        // 主页相关
+        function showHomePage() {
+            document.getElementById(`question${currentQuestion}`).classList.remove("active");
+            document.getElementById("homePage").classList.add("active");
+        }
+
+        function loadHomeContent() {
+            fetch("backend.php?action=getHomeContent")
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById("homeContent").innerHTML = `
+                            <p>${data.text}</p>
+                            ${data.imgUrl ? `<img src="${data.imgUrl}" alt="主页图片" style="max-width: 100%; margin-top: 20px;">` : ""}
+                        `;
+                    }
+                });
+        }
+
+        // 管理员登录/面板
+        function showAdminLogin() {
+            document.getElementById("adminLogin").classList.add("active");
+        }
+
+        function closeAdminLogin() {
+            document.getElementById("adminLogin").classList.remove("active");
+            document.getElementById("loginErr").textContent = "";
+        }
+
+        function loginAdmin() {
+            const pwd = document.getElementById("adminPwd").value;
+            fetch("backend.php?action=loginAdmin", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: `pwd=${encodeURIComponent(pwd)}`
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    adminToken = data.token;
+                    localStorage.setItem("adminToken", adminToken);
+                    closeAdminLogin();
+                    showAdminPanel();
+                    loadChatHistory(true);
+                } else {
+                    document.getElementById("loginErr").textContent = data.msg;
+                }
+            });
+        }
+
+        function showAdminPanel() {
+            document.getElementById("adminPanel").classList.add("active");
+            // 加载现有主页文字
+            fetch("backend.php?action=getHomeContent")
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) document.getElementById("homeText").value = data.text;
+                });
+        }
+
+        function logoutAdmin() {
+            localStorage.removeItem("adminToken");
+            adminToken = "";
+            document.getElementById("adminPanel").classList.remove("active");
+        }
+
+        // 管理员设置主页内容
+        function saveHomeContent() {
+            const text = document.getElementById("homeText").value;
+            const imgFile = document.getElementById("imgUpload").files[0];
+            const formData = new FormData();
+            formData.append("text", text);
+            if (imgFile) formData.append("img", imgFile);
+            formData.append("token", adminToken);
+
+            fetch("backend.php?action=saveHomeContent", {
+                method: "POST",
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    alert("保存成功！");
+                    装载();
+                    // 预览图重置
+                    文档.getElementById("imgPreview").风格.显示 = "none";
+                    文档.getElementById("imgUpload").价值 = "";
+                } 其他的 {
+                    警报("保存失败：" + 数据.味精);
+                }
+            });
+        }
+
+        // 图片预览
+        文档.getElementById("imgUpload").addEventListener("change"职能(E) {
+            康斯特 文件 = E.目标.档案[0];
+            如果 (文件) {
+                康斯特 读者 = 新的 阅读器();
+                读者.onload = 功能(事件) {
+                    文档.getElementById("imgPreview").学生代表会 = 事件.目标.结果;
+                    文档.getElementById("imgPreview").风格.显示 = "block";
+                };
+                读者.readAsDataURL(文件);
+            }
+        });
+
+        // 管理员修改密码
+        功能 updateAdminPwd() {
+            康斯特 newPwd = 文档.getElementById("newAdminPwd").价值;
+            如果 (!newPwd) {
+                文档.getElementById("pwdErr").文本内容 = "密码不能为空！";
+                返回;
+            }
+            取来("backend.php?action=updateAdminPwd", {
+                方法: "POST",
+                标题: { "Content-Type": "application/x-www-form-urlencoded" },
+                身体: `newPwd=${编码器(newPwd)}&代币=${adminToken}`
+            })
+            .then(留存收益表 => 留存收益表.json())
+            .then(数据 => {
+                如果(数据.成功) {
+                    警报("密码修改成功！");
+                    文档.getElementById("newAdminPwd").价值 = "";
+                } 其他的 {
+                    文档.getElementById("pwdErr").文本内容 = 数据.味精;
+                }
+            });
+        }
+
+        // 聊天功能
+        功能loadChatHistory(isAdmin = 虚假的) {
+            康斯特 聊天室 = isAdmin ? 文档.getElementById("adminChatBox") : 文档.getElementById("chatBox");
+            聊天室.innerHTML = "";
+            chatHistory.forEach(味精 => {
+查询为空
+查询为空
+查询为空
+查询为空
+查询为空
+//
+查询为空
+查询为空
+
+查询为空
+查询为空
+查询为空
+//
+查询为空
+查询为空
+//
+查询为空
+查询为空
+//
+查询为空
+查询为空
+查询为空
+查询为空
+查询为空
+查询为空
+
+查询为空
+查询为空
+查询为空
+查询为空
+查询为空
+loadChatHistory
+查询为空
+//
+查询为空
+查询为空
+查询为空
+查询为空
+查询为空
+//
+查询为空
+查询为空
+</
+</
+</
